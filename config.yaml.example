@@ -1,0 +1,55 @@
+# Heimdall Discord Bot Configuration
+
+discord:
+  # Your Discord bot token from https://discord.com/developers/applications
+  token: "YOUR_DISCORD_BOT_TOKEN"
+  
+  # Your Discord server (guild) ID
+  guild_id: "YOUR_GUILD_ID"
+  
+  # Role ID for administrators (optional - users with Administrator permission will also have access)
+  admin_role: "YOUR_ADMIN_ROLE_ID"
+  
+  # Base members role - assigned to ALL verified users (in addition to their team role)
+  # This role should have the basic permissions you want all members to have
+  members_role: "YOUR_MEMBERS_ROLE_ID"
+
+email:
+  # SMTP server configuration for sending verification emails
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_username: "your-email@gmail.com"
+  smtp_password: "your-app-password"
+  from_address: "noreply@yourdomain.com"
+  from_name: "Heimdall Bot"
+
+server:
+  # Port for the web server to listen on
+  port: 8080
+  
+  # Base URL where your verification page will be hosted
+  # This is used in the verification email link
+  base_url: "https://yourdomain.com"
+  
+  # Log level: ERROR, WARN, INFO, DEBUG (default: INFO)
+  # ERROR - Only critical errors
+  # WARN  - Warnings and errors
+  # INFO  - Normal operation logs (recommended)
+  # DEBUG - Detailed debug information
+  log_level: "INFO"
+
+# List of approved email domains
+# Users can only verify with emails from these domains
+approved_domains:
+  - "yourcompany.com"
+  - "yourcompany.co.uk"
+  - "partner-company.com"
+
+# Team roles that users can select during verification
+# Format: "Team Name": "Discord Role ID"
+teams:
+  "Engineering": "ROLE_ID_1"
+  "Product": "ROLE_ID_2"
+  "Design": "ROLE_ID_3"
+  "Marketing": "ROLE_ID_4"
+  "Sales": "ROLE_ID_5"

@@ -1,0 +1,159 @@
+# Binaries
+heimdall
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Backups
+*.backup
+*.bak
+*~
+
+# Configuration files (contains secrets)
+config.yaml
+
+# Keep the example config
+!config.yaml.example
+
+# Log files
+*.log
+logs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+.DS_Store
+
+# JetBrains IDEs
+*.iml
+.idea/
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker volumes
+data/
+volumes/
+
+# Build artifacts
+dist/
+build/
+out/
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
+*.rar
+
+# Coverage reports
+coverage.txt
+coverage.html
+coverage.out
+
+# Debug files
+debug
+__debug_bin
+
+# Air (live reload) temp files
+tmp/
+
+# Local testing files
+test_config.yaml
+local.yaml
+
+# Certificate files (if used)
+*.pem
+*.key
+*.crt
+*.csr
+
+# Secrets and keys
+secrets/
+*.secret
+
+# Lock files (optional - some prefer to commit these)
+# Uncomment if you want to ignore them
+# go.sum
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# Windows
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Claude Code
+.claude/
