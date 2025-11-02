@@ -24,6 +24,14 @@ func NewWebServer(config *Config, db *Database, bot *Bot) *WebServer {
 	}
 }
 
+// truncateCode safely truncates a verification code for logging
+func truncateCode(code string) string {
+	if len(code) <= 8 {
+		return code
+	}
+	return code[:8] + "..."
+}
+
 func (ws *WebServer) Start() error {
 	http.HandleFunc("/verify", ws.handleVerify)
 	http.HandleFunc("/api/verify", ws.handleAPIVerify)
@@ -41,11 +49,11 @@ func (ws *WebServer) handleVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	LogDebug("Web verification page accessed with code: %s", code[:8]+"...")
+	LogDebug("Web verification page accessed with code: %s", truncateCode(code))
 
 	user, err := ws.db.GetUserByVerificationCode(code)
 	if err != nil {
-		LogWarn("Invalid verification code accessed: %s", code[:8]+"...")
+		LogWarn("Invalid verification code accessed: %s", truncateCode(code))
 		http.Error(w, "Invalid or expired verification code", http.StatusNotFound)
 		return
 	}
@@ -81,11 +89,11 @@ func (ws *WebServer) handleAPIVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	LogDebug("Web verification attempt: code=%s team=%s", req.Code[:8]+"...", req.Team)
+	LogDebug("Web verification attempt: code=%s team=%s", truncateCode(req.Code), req.Team)
 
 	user, err := ws.db.GetUserByVerificationCode(req.Code)
 	if err != nil {
-		LogWarn("Invalid verification code used: %s", req.Code[:8]+"...")
+		LogWarn("Invalid verification code used: %s", truncateCode(req.Code))
 		http.Error(w, "Invalid verification code", http.StatusNotFound)
 		return
 	}
@@ -166,7 +174,7 @@ func (ws *WebServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Build status response
 	status := map[string]interface{}{
 		"status":  "healthy",
-		"version": "1.0.0",
+		"version": Version,
 		"uptime":  uptime.String(),
 		"uptime_seconds": int(uptime.Seconds()),
 		"bot": map[string]interface{}{
