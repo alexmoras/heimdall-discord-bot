@@ -17,7 +17,7 @@ func (e *EmailService) SendVerificationEmail(toEmail, verificationCode, username
 	verificationURL := fmt.Sprintf("%s/verify?code=%s", e.config.Server.BaseURL, verificationCode)
 
 	subject := "Verify Your Discord Account"
-	
+
 	// Plain text version
 	plainBody := fmt.Sprintf(`Hello %s,
 
@@ -69,12 +69,7 @@ The Heimdall Bot Team`, username, verificationURL)
             <code style="background: #e0e0e0; padding: 5px 10px; border-radius: 3px; word-break: break-all;">%s</code></p>
             
             <div class="steps">
-                <p><strong>This link will allow you to:</strong></p>
-                <ol>
-                    <li>Confirm your email address</li>
-                    <li>Select your team role</li>
-                </ol>
-                <p>Once you've completed these steps, you'll be granted access to the server.</p>
+                <p>Once you've completed the steps on the link above, you'll be granted access to the server.</p>
             </div>
             
             <p style="color: #666; font-size: 14px;">If you didn't request this verification, please ignore this email.</p>
