@@ -25,13 +25,19 @@ func main() {
 
 	// Initialize database
 	log.Println("Initializing database...")
-	db, err := NewDatabase("heimdall.db")
+
+	// Ensure data directory exists
+	if err := os.MkdirAll("data", 0755); err != nil {
+		log.Fatalf("Error creating data directory: %v", err)
+	}
+
+	db, err := NewDatabase("data/heimdall.db")
 	if err != nil {
 		log.Fatalf("Error initializing database: %v", err)
 	}
 	defer db.Close()
 	log.Println("✓ Database initialized")
-	LogDebug("Database file: heimdall.db")
+	LogDebug("Database file: data/heimdall.db")
 
 	// Initialize email service
 	log.Println("Initializing email service...")
