@@ -128,13 +128,17 @@ func (b *Bot) onGuildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd
 		return
 	}
 
-	welcomeMsg := `👋 Welcome to the server!
+	// Use configured welcome message, or fallback to default if not set
+	welcomeMsg := b.config.Discord.WelcomeMessage
+	if welcomeMsg == "" {
+		welcomeMsg = `👋 Welcome to the server!
 
 To gain access, you need to verify your work email address.
 
 Please reply to this message with your work email address (e.g., yourname@company.com).
 
 Your email must be from one of our approved company domains.`
+	}
 
 	_, err = s.ChannelMessageSend(channel.ID, welcomeMsg)
 	if err != nil {
@@ -247,7 +251,13 @@ func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) 
 	}
 
 	LogSuccess("Verification email sent to %s (user: %s)", email, username)
-	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("✅ Verification email sent to **%s**!\n\nPlease check your inbox and click the verification link. You'll be asked to select your team, and then you'll have full access to the server.", email))
+	successMsg := fmt.Sprintf("✅ Verification email sent to **%s**!\n\nPlease check your inbox and click the verification link.", email)
+	if b.config.Features.EnableTeamSelection {
+		successMsg += " You'll be asked to select your team, and then you'll have full access to the server."
+	} else {
+		successMsg += " Once you verify, you'll have full access to the server."
+	}
+	s.ChannelMessageSend(m.ChannelID, successMsg)
 }
 
 func (b *Bot) registerCommands() error {
@@ -268,48 +278,6 @@ func (b *Bot) registerCommands() error {
 					Type:        discordgo.ApplicationCommandOptionUser,
 					Name:        "user",
 					Description: "The user to reset",
-					Required:    true,
-				},
-			},
-		},
-		{
-			Name:        "heimdall-verify",
-			Description: "Manually verify a user (Moderator only)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user",
-					Description: "The user to verify",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "email",
-					Description: "User's work email address",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "team",
-					Description: "Team to assign",
-					Required:    true,
-				},
-			},
-		},
-		{
-			Name:        "heimdall-changeteam",
-			Description: "Change a verified user's team (Moderator only)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user",
-					Description: "The user to change",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "team",
-					Description: "New team to assign",
 					Required:    true,
 				},
 			},
@@ -370,6 +338,59 @@ func (b *Bot) registerCommands() error {
 			Name:        "heimdall-help",
 			Description: "Show help information",
 		},
+	}
+
+	// Add manual verify command - always available but team parameter is optional when feature is disabled
+	verifyCommandOptions := []*discordgo.ApplicationCommandOption{
+		{
+			Type:        discordgo.ApplicationCommandOptionUser,
+			Name:        "user",
+			Description: "The user to verify",
+			Required:    true,
+		},
+		{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "email",
+			Description: "User's work email address",
+			Required:    true,
+		},
+	}
+
+	if b.config.Features.EnableTeamSelection {
+		verifyCommandOptions = append(verifyCommandOptions, &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionString,
+			Name:        "team",
+			Description: "Team to assign",
+			Required:    true,
+		})
+	}
+
+	commands = append(commands, &discordgo.ApplicationCommand{
+		Name:        "heimdall-verify",
+		Description: "Manually verify a user (Moderator only)",
+		Options:     verifyCommandOptions,
+	})
+
+	// Only register changeteam command if feature is enabled
+	if b.config.Features.EnableTeamSelection {
+		commands = append(commands, &discordgo.ApplicationCommand{
+			Name:        "heimdall-changeteam",
+			Description: "Change a verified user's team (Moderator only)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "The user to change",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "team",
+					Description: "New team to assign",
+					Required:    true,
+				},
+			},
+		})
 	}
 
 	// Use bulk overwrite to avoid rate limits - this replaces ALL commands in one API call
@@ -609,9 +630,17 @@ func (b *Bot) handleManualVerify(s *discordgo.Session, i *discordgo.InteractionC
 	options := i.ApplicationCommandData().Options
 	userOption := options[0].UserValue(s)
 	email := strings.TrimSpace(strings.ToLower(options[1].StringValue()))
-	team := options[2].StringValue()
 
-	LogInfo("Moderator %s attempting manual verify: user=%s email=%s team=%s", i.Member.User.Username, userOption.Username, email, team)
+	var team string
+	var roleID string
+
+	// Get team parameter if team selection is enabled
+	if b.config.Features.EnableTeamSelection {
+		team = options[2].StringValue()
+		LogInfo("Moderator %s attempting manual verify: user=%s email=%s team=%s", i.Member.User.Username, userOption.Username, email, team)
+	} else {
+		LogInfo("Moderator %s attempting manual verify: user=%s email=%s (no team)", i.Member.User.Username, userOption.Username, email)
+	}
 
 	// Validate email format
 	if !isValidEmail(email) {
@@ -627,19 +656,26 @@ func (b *Bot) handleManualVerify(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 
-	// Check if team exists
-	roleID, exists := b.config.Teams[team]
-	if !exists {
-		LogDebug("Invalid team selected in manual verify: %s", team)
-		b.respondEphemeral(s, i, fmt.Sprintf("❌ Team '%s' not found.\n\n**Available teams:** %s", team, b.getTeamNames()))
-		return
+	// Check if team exists (only if feature is enabled)
+	if b.config.Features.EnableTeamSelection {
+		var exists bool
+		roleID, exists = b.config.Teams[team]
+		if !exists {
+			LogDebug("Invalid team selected in manual verify: %s", team)
+			b.respondEphemeral(s, i, fmt.Sprintf("❌ Team '%s' not found.\n\n**Available teams:** %s", team, b.getTeamNames()))
+			return
+		}
 	}
 
 	// Check if user already exists
 	existingUser, err := b.db.GetUserByDiscordID(userOption.ID)
 	if err == nil && existingUser.Verified {
 		LogDebug("User %s already verified, manual verify rejected", userOption.Username)
-		b.respondEphemeral(s, i, fmt.Sprintf("❌ <@%s> is already verified. Use `/heimdall-changeteam` to change their team.", userOption.ID))
+		if b.config.Features.EnableTeamSelection {
+			b.respondEphemeral(s, i, fmt.Sprintf("❌ <@%s> is already verified. Use `/heimdall-changeteam` to change their team.", userOption.ID))
+		} else {
+			b.respondEphemeral(s, i, fmt.Sprintf("❌ <@%s> is already verified.", userOption.ID))
+		}
 		return
 	}
 
@@ -683,11 +719,20 @@ func (b *Bot) handleManualVerify(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	// Mark as verified in database
-	err = b.db.UpdateUserTeam(userOption.ID, team)
-	if err != nil {
-		LogError("Error updating user team in manual verify %s: %v", username, err)
-		b.respondEphemeral(s, i, "❌ Error updating user verification.")
-		return
+	if b.config.Features.EnableTeamSelection {
+		err = b.db.UpdateUserTeam(userOption.ID, team)
+		if err != nil {
+			LogError("Error updating user team in manual verify %s: %v", username, err)
+			b.respondEphemeral(s, i, "❌ Error updating user verification.")
+			return
+		}
+	} else {
+		err = b.db.MarkUserVerified(userOption.ID)
+		if err != nil {
+			LogError("Error marking user verified in manual verify %s: %v", username, err)
+			b.respondEphemeral(s, i, "❌ Error updating user verification.")
+			return
+		}
 	}
 
 	// Assign members role (if configured)
@@ -699,20 +744,26 @@ func (b *Bot) handleManualVerify(s *discordgo.Session, i *discordgo.InteractionC
 		}
 	}
 
-	// Assign team role
-	if err := b.AssignRole(userOption.ID, roleID); err != nil {
-		LogError("Error assigning team role in manual verify %s: %v", username, err)
-		b.respondEphemeral(s, i, "⚠️ User verified in database but failed to assign Discord role. Please assign manually.")
-		return
+	// Assign team role (only if feature is enabled)
+	if b.config.Features.EnableTeamSelection {
+		if err := b.AssignRole(userOption.ID, roleID); err != nil {
+			LogError("Error assigning team role in manual verify %s: %v", username, err)
+			b.respondEphemeral(s, i, "⚠️ User verified in database but failed to assign Discord role. Please assign manually.")
+			return
+		}
+		LogDebug("Assigned %s team role to %s (manual verify)", team, username)
 	}
-	LogDebug("Assigned %s team role to %s (manual verify)", team, username)
 
 	// Send success message
-	LogSuccess("Manual verification: %s verified by %s (team: %s, email: %s)", username, i.Member.User.Username, team, email)
-	b.respondEphemeral(s, i, fmt.Sprintf("✅ Successfully verified <@%s> with email `%s` and assigned to **%s** team.", userOption.ID, email, team))
-
-	// Send DM to user
-	b.SendDM(userOption.ID, fmt.Sprintf("✅ You have been manually verified by a moderator! Welcome to the **%s** team. You now have access to the server.", team))
+	if b.config.Features.EnableTeamSelection {
+		LogSuccess("Manual verification: %s verified by %s (team: %s, email: %s)", username, i.Member.User.Username, team, email)
+		b.respondEphemeral(s, i, fmt.Sprintf("✅ Successfully verified <@%s> with email `%s` and assigned to **%s** team.", userOption.ID, email, team))
+		b.SendDM(userOption.ID, fmt.Sprintf("✅ You have been manually verified by a moderator! Welcome to the **%s** team. You now have access to the server.", team))
+	} else {
+		LogSuccess("Manual verification: %s verified by %s (email: %s)", username, i.Member.User.Username, email)
+		b.respondEphemeral(s, i, fmt.Sprintf("✅ Successfully verified <@%s> with email `%s`.", userOption.ID, email))
+		b.SendDM(userOption.ID, "✅ You have been manually verified by a moderator! You now have access to the server.")
+	}
 }
 
 func (b *Bot) handleChangeTeam(s *discordgo.Session, i *discordgo.InteractionCreate) {

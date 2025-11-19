@@ -185,11 +185,21 @@ func (d *Database) GetUserByVerificationCode(code string) (*User, error) {
 
 func (d *Database) UpdateUserTeam(discordID, teamRole string) error {
 	query := `
-		UPDATE users 
+		UPDATE users
 		SET team_role = ?, verified = TRUE, verified_at = CURRENT_TIMESTAMP
 		WHERE discord_id = ?
 	`
 	_, err := d.db.Exec(query, teamRole, discordID)
+	return err
+}
+
+func (d *Database) MarkUserVerified(discordID string) error {
+	query := `
+		UPDATE users
+		SET verified = TRUE, verified_at = CURRENT_TIMESTAMP
+		WHERE discord_id = ?
+	`
+	_, err := d.db.Exec(query, discordID)
 	return err
 }
 

@@ -84,12 +84,22 @@ func (ws *WebServer) handleAPIVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Code == "" || req.Team == "" {
-		http.Error(w, "Code and team are required", http.StatusBadRequest)
+	if req.Code == "" {
+		http.Error(w, "Code is required", http.StatusBadRequest)
 		return
 	}
 
-	LogDebug("Web verification attempt: code=%s team=%s", truncateCode(req.Code), req.Team)
+	// Only require team if feature is enabled
+	if ws.config.Features.EnableTeamSelection && req.Team == "" {
+		http.Error(w, "Team is required", http.StatusBadRequest)
+		return
+	}
+
+	if ws.config.Features.EnableTeamSelection {
+		LogDebug("Web verification attempt: code=%s team=%s", truncateCode(req.Code), req.Team)
+	} else {
+		LogDebug("Web verification attempt: code=%s", truncateCode(req.Code))
+	}
 
 	user, err := ws.db.GetUserByVerificationCode(req.Code)
 	if err != nil {
@@ -104,21 +114,38 @@ func (ws *WebServer) handleAPIVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	LogInfo("Processing web verification for %s (team: %s)", user.DiscordUsername, req.Team)
+	var roleID string
+	var teamName string
 
-	// Check if team exists
-	roleID, exists := ws.config.Teams[req.Team]
-	if !exists {
-		LogWarn("Invalid team selected: %s (user: %s)", req.Team, user.DiscordUsername)
-		http.Error(w, "Invalid team selection", http.StatusBadRequest)
-		return
-	}
+	// Handle team selection if enabled
+	if ws.config.Features.EnableTeamSelection {
+		LogInfo("Processing web verification for %s (team: %s)", user.DiscordUsername, req.Team)
 
-	// Update database
-	if err := ws.db.UpdateUserTeam(user.DiscordID, req.Team); err != nil {
-		LogError("Error updating user team for %s: %v", user.DiscordUsername, err)
-		http.Error(w, "Failed to verify user", http.StatusInternalServerError)
-		return
+		// Check if team exists
+		var exists bool
+		roleID, exists = ws.config.Teams[req.Team]
+		if !exists {
+			LogWarn("Invalid team selected: %s (user: %s)", req.Team, user.DiscordUsername)
+			http.Error(w, "Invalid team selection", http.StatusBadRequest)
+			return
+		}
+		teamName = req.Team
+
+		// Update database with team
+		if err := ws.db.UpdateUserTeam(user.DiscordID, req.Team); err != nil {
+			LogError("Error updating user team for %s: %v", user.DiscordUsername, err)
+			http.Error(w, "Failed to verify user", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		LogInfo("Processing web verification for %s (no team selection)", user.DiscordUsername)
+
+		// Mark user as verified without team
+		if err := ws.db.MarkUserVerified(user.DiscordID); err != nil {
+			LogError("Error marking user verified for %s: %v", user.DiscordUsername, err)
+			http.Error(w, "Failed to verify user", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// Assign base members role (if configured)
@@ -131,18 +158,30 @@ func (ws *WebServer) handleAPIVerify(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Assign team role in Discord
-	if err := ws.bot.AssignRole(user.DiscordID, roleID); err != nil {
-		LogError("Error assigning team role to %s: %v", user.DiscordUsername, err)
-		// Don't fail the request, but log the error
-	} else {
-		LogDebug("Assigned %s team role to %s", req.Team, user.DiscordUsername)
+	// Assign team role in Discord if team selection is enabled
+	if ws.config.Features.EnableTeamSelection && roleID != "" {
+		if err := ws.bot.AssignRole(user.DiscordID, roleID); err != nil {
+			LogError("Error assigning team role to %s: %v", user.DiscordUsername, err)
+			// Don't fail the request, but log the error
+		} else {
+			LogDebug("Assigned %s team role to %s", teamName, user.DiscordUsername)
+		}
 	}
 
 	// Send success DM
-	ws.bot.SendDM(user.DiscordID, fmt.Sprintf("✅ Verification complete! Welcome to the %s team. You now have access to the server.", req.Team))
+	var successDM string
+	if ws.config.Features.EnableTeamSelection {
+		successDM = fmt.Sprintf("✅ Verification complete! Welcome to the %s team. You now have access to the server.", teamName)
+	} else {
+		successDM = "✅ Verification complete! You now have access to the server."
+	}
+	ws.bot.SendDM(user.DiscordID, successDM)
 
-	LogSuccess("User %s verified successfully (team: %s, email: %s)", user.DiscordUsername, req.Team, user.Email)
+	if ws.config.Features.EnableTeamSelection {
+		LogSuccess("User %s verified successfully (team: %s, email: %s)", user.DiscordUsername, teamName, user.Email)
+	} else {
+		LogSuccess("User %s verified successfully (email: %s)", user.DiscordUsername, user.Email)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
@@ -328,6 +367,7 @@ func (ws *WebServer) renderVerificationPage(w http.ResponseWriter, user *User) {
         </div>
 
         <form id="verifyForm">
+            {{if .EnableTeamSelection}}
             <label for="team">Select Your Team:</label>
             <select id="team" name="team" required>
                 <option value="">-- Choose a team --</option>
@@ -335,6 +375,7 @@ func (ws *WebServer) renderVerificationPage(w http.ResponseWriter, user *User) {
                 <option value="{{$team}}">{{$team}}</option>
                 {{end}}
             </select>
+            {{end}}
 
             <button type="submit" id="submitBtn">Complete Verification</button>
         </form>
@@ -348,39 +389,45 @@ func (ws *WebServer) renderVerificationPage(w http.ResponseWriter, user *User) {
     <script>
         document.getElementById('verifyForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            const team = document.getElementById('team').value;
+
+            const teamElement = document.getElementById('team');
+            const team = teamElement ? teamElement.value : '';
             const submitBtn = document.getElementById('submitBtn');
             const successMsg = document.getElementById('successMsg');
             const errorMsg = document.getElementById('errorMsg');
-            
-            if (!team) {
+
+            if (teamElement && !team) {
                 errorMsg.textContent = 'Please select a team';
                 errorMsg.style.display = 'block';
                 return;
             }
-            
+
             submitBtn.disabled = true;
             submitBtn.textContent = 'Verifying...';
             errorMsg.style.display = 'none';
-            
+
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const code = urlParams.get('code');
-                
+
+                const body = { code };
+                if (team) {
+                    body.team = team;
+                }
+
                 const response = await fetch('/api/verify', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ code, team }),
+                    body: JSON.stringify(body),
                 });
-                
+
                 if (!response.ok) {
                     const data = await response.text();
                     throw new Error(data || 'Verification failed');
                 }
-                
+
                 successMsg.style.display = 'block';
                 document.getElementById('verifyForm').style.display = 'none';
             } catch (error) {
@@ -401,13 +448,15 @@ func (ws *WebServer) renderVerificationPage(w http.ResponseWriter, user *User) {
 	}
 
 	data := struct {
-		DiscordUsername string
-		Email           string
-		Teams           map[string]string
+		DiscordUsername     string
+		Email               string
+		Teams               map[string]string
+		EnableTeamSelection bool
 	}{
-		DiscordUsername: user.DiscordUsername,
-		Email:           user.Email,
-		Teams:           ws.config.Teams,
+		DiscordUsername:     user.DiscordUsername,
+		Email:               user.Email,
+		Teams:               ws.config.Teams,
+		EnableTeamSelection: ws.config.Features.EnableTeamSelection,
 	}
 
 	w.Header().Set("Content-Type", "text/html")

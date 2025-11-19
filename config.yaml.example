@@ -14,6 +14,18 @@ discord:
   # This role should have the basic permissions you want all members to have
   members_role: "YOUR_MEMBERS_ROLE_ID"
 
+  # Welcome message sent to users when they join the server
+  # This message explains how to get verified
+  # You can customize this to match your server's tone and requirements
+  welcome_message: |
+    👋 Welcome to the server!
+
+    To gain access, you need to verify your work email address.
+
+    Please reply to this message with your work email address (e.g., yourname@company.com).
+
+    Your email must be from one of our approved company domains.
+
 email:
   # SMTP server configuration for sending verification emails
   smtp_host: "smtp.gmail.com"
@@ -38,6 +50,13 @@ server:
   # DEBUG - Detailed debug information
   log_level: "INFO"
 
+features:
+  # Enable team/role selection during verification
+  # When disabled, users will only receive the base members_role
+  # Team selection commands (/heimdall-changeteam) will also be disabled
+  # The /heimdall-verify command will still work but without team assignment
+  enable_team_selection: true
+
 # List of approved email domains
 # Users can only verify with emails from these domains
 approved_domains:
@@ -47,6 +66,8 @@ approved_domains:
 
 # Team roles that users can select during verification
 # Format: "Team Name": "Discord Role ID"
+# Only used when features.enable_team_selection is true
+# You can define as many or as few teams as needed
 teams:
   "Engineering": "ROLE_ID_1"
   "Product": "ROLE_ID_2"
